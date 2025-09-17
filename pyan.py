@@ -1,74 +1,85 @@
 import torch
 from pyannote.audio import Pipeline
 import warnings
-import os # 导入 os 库
-
-# 忽略一些 torchaudio 相关的警告
-warnings.filterwarnings("ignore", category=UserWarning, module="torchaudio")
+import os
 
 # --- 配置 ---
 
+# ！！！ 关键步骤 ！！！
+# 请在这里填入您解压的 *三个模型* 的 *config.yaml* 文件的 *绝对路径*
+
+# 1. 主流水线 (diarization-3.1) 的 config.yaml 路径
+MAIN_CONFIG_PATH = "/PATH/TO/pyannote_speaker-diarization-3.1/config.yaml"
+
+# 2. 分割模型 (segmentation-3.0) 的 config.yaml 路径
+SEGMENTATION_CONFIG_PATH = "/PATH/TO/pyannote_segmentation-3.0/config.yaml"
+
+# 3. 嵌入模型 (wespeaker) 的 config.yaml 路径 (根据您之前的反馈)
+EMBEDDING_CONFIG_PATH = "/PATH/TO/pyannote_wespeaker-voxceleb-resnet34-LM/config.yaml"
+
+# -------------------------------------------------------------------
+
+# 忽略警告
+warnings.filterwarnings("ignore", category=UserWarning, module="torchaudio")
+
 def get_device():
-    """
-    自动检测可用的最佳计算设备 (GPU > Apple Silicon > CPU)
-    """
+    """自动检测最佳设备"""
     if torch.cuda.is_available():
-        print("检测到 NVIDIA GPU (CUDA)，将使用 'cuda' 设备。")
+        print("检测到 CUDA，将使用 'cuda'。")
         return torch.device("cuda")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        print("检测到 Apple Silicon (MPS)，将使用 'mps' 设备。")
+        print("检测到 Apple Silicon (MPS)，将使用 'mps'。")
         return torch.device("mps")
     else:
-        print("未检测到 CUDA 或 MPS，将使用 'cpu'。")
-        print("警告: 使用 CPU 进行推理会非常慢。")
+        print("未检测到 GPU，将使用 'cpu' (较慢)。")
         return torch.device("cpu")
 
 DEVICE = get_device()
 
-# --- 加载 SOTA 流水线 (离线方式) ---
-
-# ！！！ 关键修改 ！！！
-#
-# 1. 路径现在必须指向 *文件夹内部* 的 'config.yaml' 文件
-#
-# 示例:
-# 如果你的文件夹路径是: /home/your_user/models/pyannote_speaker-diarization-3.1
-# 那么这里就填:
-# LOCAL_MODEL_CONFIG_FILE = "/home/your_user/models/pyannote_speaker-diarization-3.1/config.yaml"
-#
-LOCAL_MODEL_CONFIG_FILE = "/PATH/TO/YOUR/UNZIPPED/MODEL/FOLDER/config.yaml" # <-- ！！！ 修改我 ！！！
-
-
-print(f"正在从本地配置文件加载流水线: {LOCAL_MODEL_CONFIG_FILE} ...")
+print("--- 正在加载流水线 (离线覆盖模式) ---")
 
 # 检查路径是否被修改
-if "YOUR/UNZIPPED/MODEL/FOLDER" in LOCAL_MODEL_CONFIG_FILE:
+if "PATH/TO/" in MAIN_CONFIG_PATH:
     print("\n" + "="*50)
-    print("错误: 请在脚本中修改第 36 行的 'LOCAL_MODEL_CONFIG_FILE' 变量！")
-    print("它必须指向您解压的模型文件夹 *内部* 的 'config.yaml' 文件。")
+    print("错误: 请在脚本顶部修改 'MAIN_CONFIG_PATH' 等三个路径变量！")
     print("="*50 + "\n")
     exit(1)
 
-# 检查 *文件* 是否存在
-if not os.path.isfile(LOCAL_MODEL_CONFIG_FILE):
-    print(f"\n错误: 配置文件 '{LOCAL_MODEL_CONFIG_FILE}' 未找到。")
-    print("请确保您的路径正确，并且它指向的是 'config.yaml' 文件，*不是* 文件夹。")
-    print(f"请检查这个路径：{LOCAL_MODEL_CONFIG_FILE}")
-    exit(1)
+# 检查所有文件是否存在
+for path in [MAIN_CONFIG_PATH, SEGMENTATION_CONFIG_PATH, EMBEDDING_CONFIG_PATH]:
+    if not os.path.isfile(path):
+        print(f"\n错误: 路径配置错误，找不到文件: {path}")
+        print("请确保脚本顶部的三个路径都指向了正确的 config.yaml 文件。")
+        exit(1)
+    else:
+        print(f"找到配置文件: {path}")
 
 try:
-    # 关键改动：现在加载的是 .yaml 文件路径
+    # ！！！ 最终解决方案 ！！！
+    # 我们加载 *原始* 的主 config.yaml 文件...
+    # ...然后 *在 Python 内存中* 动态覆盖它的依赖项！
+    
     pipeline = Pipeline.from_pretrained(
-        LOCAL_MODEL_CONFIG_FILE
+        MAIN_CONFIG_PATH,
+        
+        # --- 参数覆盖 ---
+        # 这里的参数名 (segmentation, embedding)
+        # 必须与主 config.yaml 中 'params:' 下的键完全一致
+        
+        # 强制 pyannote 使用 *本地* 的分割模型
+        segmentation=SEGMENTATION_CONFIG_PATH,
+        
+        # 强制 pyannote 使用 *本地* 的嵌入模型
+        embedding=EMBEDDING_CONFIG_PATH
+        # -----------------
     )
+    
     pipeline.to(DEVICE)
-    print("流水线从本地加载成功。")
+    print("\n流水线从本地加载成功！（已覆盖依赖项）")
 
 except Exception as e:
-    print(f"从本地加载流水线失败: {e}")
-    print("\n--- 请确保: ---")
-    print(f"1. 路径 '{LOCAL_MODEL_CONFIG_FILE}' 是正确的。")
-    print("2. 您的 pyannote.audio 库已正确安装。")
+    print(f"\n从本地加载流水线失败: {e}")
+    print("请仔细检查脚本顶部的三个路径是否完全正确。")
     print("------------------\n")
     exit(1)
 
@@ -76,7 +87,7 @@ except Exception as e:
 def contains_multiple_speakers(audio_file_path: str) -> bool:
     """
     分析一个音频文件，判断是否包含多个说话人。
-    ... (此函数与上一版本完全相同) ...
+    (此函数与上一版本完全相同)
     """
     print(f"\n正在处理文件: {audio_file_path}")
     try:
@@ -120,7 +131,6 @@ if __name__ == "__main__":
             print(f"文件: '{os.path.basename(file_path)}'")
             print(f"是否包含多个说话人? {is_multi}")
             print("="*30)
-
         except Exception as e:
             if "未找到" not in str(e):
                 print(f"运行示例时发生意外错误: {e}")
