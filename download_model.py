@@ -1,34 +1,48 @@
 from huggingface_hub import snapshot_download
 import os
 
-# --- 新增代码：设置Hugging Face镜像地址 ---
-# 这会告诉 huggingface_hub 库从 hf-mirror.com 下载
-os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-# ----------------------------------------
-
+# --- 配置 ---
 # ！！！ 替换为你自己的 Token ！！！
-# 即使使用镜像，你仍然需要Token来访问门控模型
 HF_AUTH_TOKEN = "YOUR_HUGGING_FACE_TOKEN_GOES_HERE"
 
-MODEL_ID = "pyannote/speaker-diarization-3.1"
-LOCAL_MODEL_DIR = MODEL_ID.replace("/", "_") 
+# 设置镜像站 (可选, 如果你需要)
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-if not os.path.exists(LOCAL_MODEL_DIR):
-    os.makedirs(LOCAL_MODEL_DIR)
+# 我们需要下载的 *所有* 模型
+MODELS_TO_DOWNLOAD = [
+    "pyannote/speaker-diarization-3.1",
+    "pyannote/segmentation-3.0",
+    "pyannote/embedding-3.0"
+]
+# ----------------
 
-print(f"正在从镜像站 '{os.environ.get('HF_ENDPOINT')}' 下载模型 '{MODEL_ID}' ...")
+print(f"准备下载 {len(MODELS_TO_DOWNLOAD)} 个模型...")
 
-try:
-    snapshot_download(
-        repo_id=MODEL_ID,
-        local_dir=LOCAL_MODEL_DIR,
-        use_auth_token=HF_AUTH_TOKEN,
-        repo_type="model" 
-    )
-    print(f"\n模型下载成功！文件已保存到: {os.path.abspath(LOCAL_MODEL_DIR)}")
-    print("下一步：请将这个完整的文件夹打包（例如 .zip），然后上传到你的公司平台。")
+for model_id in MODELS_TO_DOWNLOAD:
+    LOCAL_MODEL_DIR = model_id.replace("/", "_") 
     
-except Exception as e:
-    print(f"\n下载失败: {e}")
-    print(f"请检查你的 HF_AUTH_TOKEN 和网络连接。")
-    print(f"同时也请确认镜像站 '{os.environ.get('HF_ENDPOINT')}' 是否可访问。")
+    if not os.path.exists(LOCAL_MODEL_DIR):
+        os.makedirs(LOCAL_MODEL_DIR)
+
+    print(f"\n--- 正在下载: {model_id} ---")
+    print(f"    将保存到: ./{LOCAL_MODEL_DIR}")
+    
+    try:
+        snapshot_download(
+            repo_id=model_id,
+            local_dir=LOCAL_MODEL_DIR,
+            use_auth_token=HF_AUTH_TOKEN,
+            repo_type="model",
+            # 忽略 .safetensors 文件（pyannote 目前主要用 .bin）
+            # 这可以减少下载量
+            ignore_patterns=["*.safetensors*"], 
+        )
+        print(f"--- {model_id} 下载成功 ---")
+        
+    except Exception as e:
+        print(f"\n下载 {model_id} 失败: {e}")
+        print("请检查你的 Token 和网络。")
+
+print("\n所有模型下载完毕。请将以下文件夹打包上传到您的平台：")
+for model_id in MODELS_TO_DOWNLOAD:
+    print(f"- {model_id.replace('/', '_')}")
